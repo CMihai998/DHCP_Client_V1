@@ -62,6 +62,27 @@ struct in_addr * receive_address(int sock, struct sockaddr_in *server, int serve
 }
 
 /**
+ * Returns address to DHCP server
+ * @param sock
+ * @param server
+ * @param server_length
+ * @param address
+ */
+void return_address(int sock, struct sockaddr_in *server, int server_length, struct in_addr *address) {
+    int request = 2;
+    printf("Initiating address return...\n");
+    if (sendto(sock, &request, sizeof (int), 0, server, server_length) < 0)
+        error("sendto() - return_address -> initiating address return\n");
+
+    if (sendto(sock, &address->s_addr, sizeof (in_addr_t), 0, server, server_length) < 0)
+        error("sendto() - return_address -> failed to return address to server");
+    else
+        printf("\tSent: returned address: %d\n-----------------\n", address->s_addr);
+
+    free(address);
+}
+
+/**
  * Signals server to shutdown
  * @param sock
  * @param server
@@ -91,9 +112,11 @@ int main() {
     server_length = sizeof (struct sockaddr_in);
 
     send_configuration(sock, server, server_length);
-    receive_address(sock, server, server_length);
-    receive_address(sock, server, server_length);
-    receive_address(sock, server, server_length);
+    struct in_addr* a1 = receive_address(sock, server, server_length);
+    struct in_addr* a2 = receive_address(sock, server, server_length);
+    struct in_addr* a3 = receive_address(sock, server, server_length);
+
+    return_address(sock, server, server_length, a2);
 
     shutdown_server(sock, server, server_length);
     return 0;
