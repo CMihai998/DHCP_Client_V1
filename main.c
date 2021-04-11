@@ -80,19 +80,12 @@ void shutdown_server(int sock, struct sockaddr_in *server, int server_length) {
 int main() {
     int sock, server_length, n;
     struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
-    struct sockaddr_in *from = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
-    struct hostent *hp;
 
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0)
         error("socket()");
 
     server->sin_family = AF_INET;
-//    hp = gethostbyname("127.0.0.1");
-//    if (hp == 0)
-//        error("gethostbyname() - Unknown host");
-//
-//    bcopy((char *) hp->h_name, (char *)&server.sin_addr, hp->h_length);
     server->sin_addr.s_addr = INADDR_ANY;
     server->sin_port = htons(DHCP_PORT);
     server_length = sizeof (struct sockaddr_in);
