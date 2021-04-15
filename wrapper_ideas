@@ -1,0 +1,21 @@
+Server:
+	-starts by typing wg_dhcp_server
+	-spawns the dhcp server we created:  //or the server could be changed such that, it starts the wg interface and adds a client from within the code with system() function call --- this could be better TBH
+		-uses config from wg0.conf
+	-when a client successfully receives an address, he needs to send a message back with the feedback
+		-if successfull, the server adds the client as a peer (this should be done from the dhcp server configuration)
+		-continue if not
+	-when an address is received back from a client, just delete it from the SLL
+
+Client:
+	-gets address from server
+		-if successfull, start specified interface
+		-die, otherwise
+		-send status to server
+	-after closing the specified interface, free the address
+		--hints -(this could be done by running a shell script in the background that could be triggered by changes of interfaces or just my checking ip-config | grep ....)
+			-execution might be something like: client_app(c application) starts -> spawns check for interface -> when interface dissappears -> starts client_app_return_address(c application)
+
+Both:
+	-a nice protocol should be used in order to get the address from the server
+	-encryption may be used (since we have the private keys on both ends right?)
