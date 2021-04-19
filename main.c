@@ -16,6 +16,9 @@
 #define DHCP_PORT 6969
 #define OLD_CONFIG_FILE "/etc/wireguard/wg0.conf"
 #define NEW_CONFIG_FILE "/etc/wireguard/wg1.conf"
+#define START_INTERFACE_COMMAND "wg-quick up wg0"
+#define STOP_INTERFACE_COMMAND "wg-quick down wg0"
+
 
 char PUBLIC_KEY[256], ALLOWED_IPS[256];
 
@@ -146,6 +149,13 @@ void check_for_shutdown(int sock, struct sockaddr_in *server, int server_length)
 
 }
 
+void start_interface() {
+    system(START_INTERFACE_COMMAND);
+}
+
+void stop_interface() {
+    system(STOP_INTERFACE_COMMAND);
+}
 
 void usage() {
     int sock, server_length, n;
@@ -225,6 +235,7 @@ void write_address_to_file(struct in_addr *address) {
             while (word_list[i] != NULL) {
                 if (i == 2 && strcmp("Address", word_list[0]) == 0) {
                     int length = strlen(new_content);
+//                    strcpy(new_content[length - 1], " = ");
                     new_content[length - 1] = ' ';
                     new_content[length] = '=';
                     new_content[length + 1] = ' ';
@@ -244,12 +255,12 @@ void write_address_to_file(struct in_addr *address) {
     close(input_file);
     printf("%s", new_content);
 
-    new_file = fopen(NEW_CONFIG_FILE, "w");
-    if (new_file == NULL)
-        error("fopen() - NEW_CONFIG_FILE");
-
-    fputs(new_content, new_file);
-    close(new_file);
+//    new_file = fopen(NEW_CONFIG_FILE, "w");
+//    if (new_file == NULL)
+//        error("fopen() - NEW_CONFIG_FILE");
+//
+//    fputs(new_content, new_file);
+//    close(new_file);
 }
 
 int main() {
@@ -257,7 +268,10 @@ int main() {
 //    struct in_addr *addr = (struct in_addr*) malloc(sizeof (struct in_addr));
 //    addr->s_addr = 1;
 //    write_address_to_file(addr);
-    get_data_from_config_file();
+
+    start_interface();
+    stop_interface();
+//    get_data_from_config_file();
     return 0;
 }
 
