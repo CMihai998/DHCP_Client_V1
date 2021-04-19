@@ -264,10 +264,10 @@ void write_address_to_file(struct in_addr *address) {
 }
 
 int main() {
-//    char *address;
-//    struct in_addr *addr = (struct in_addr*) malloc(sizeof (struct in_addr));
-//    addr->s_addr = 1;
-//    write_address_to_file(addr);
+    char *address;
+    struct in_addr *addr = (struct in_addr*) malloc(sizeof (struct in_addr));
+    addr->s_addr = 1;
+    write_address_to_file(addr);
 
     start_interface();
     stop_interface();
@@ -358,3 +358,4 @@ void might_be_useful_v2() {
 
     shutdown_server(sock, server, server_length);
 }
+//TODO: You are currently getting the private key of the server, you should add you private key to the config file and use that one (HINT: put it in the interface part and just don't check it after it was changed once)
