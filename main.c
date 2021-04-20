@@ -216,6 +216,10 @@ void get_data_from_config_file() {
           "- INVALID CONFIG FILE! PublicKey AND AllowedIPs are mandatory");
 }
 
+//    char *address;
+//    struct in_addr *addr = (struct in_addr*) malloc(sizeof (struct in_addr));
+//    addr->s_addr = 1;
+//    write_address_to_file(addr);
 void write_address_to_file(struct in_addr *address) {
     char new_content[262144], line[512], *word_list[64], delimit[]=" ";
     char *readable_address = inet_ntoa(*address);
@@ -255,19 +259,16 @@ void write_address_to_file(struct in_addr *address) {
     close(input_file);
     printf("%s", new_content);
 
-//    new_file = fopen(NEW_CONFIG_FILE, "w");
-//    if (new_file == NULL)
-//        error("fopen() - NEW_CONFIG_FILE");
-//
-//    fputs(new_content, new_file);
-//    close(new_file);
+    new_file = fopen(NEW_CONFIG_FILE, "w");
+    if (new_file == NULL)
+        error("fopen() - NEW_CONFIG_FILE");
+
+    fputs(new_content, new_file);
+    close(new_file);
 }
 
 int main() {
-    char *address;
-    struct in_addr *addr = (struct in_addr*) malloc(sizeof (struct in_addr));
-    addr->s_addr = 1;
-    write_address_to_file(addr);
+
 
     start_interface();
     stop_interface();
