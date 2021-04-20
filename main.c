@@ -359,4 +359,5 @@ void might_be_useful_v2() {
 
     shutdown_server(sock, server, server_length);
 }
+//TODO: Also send current IP address to be sent (see if mandatory)
 //TODO: You are currently getting the private key of the server, you should add you private key to the config file and use that one (HINT: put it in the interface part and just don't check it after it was changed once)
