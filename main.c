@@ -12,7 +12,8 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 
-#define WG_NAME "wg0"
+#define WG_INTERFACE_NAME "wg0"
+#define INTERNET_INTERFACE_NAME "eno1"
 #define DHCP_PORT 6969
 #define OLD_CONFIG_FILE "/etc/wireguard/wg0.conf"
 #define NEW_CONFIG_FILE "/etc/wireguard/wg1.conf"
@@ -114,25 +115,58 @@ void shutdown_server(int sock, struct sockaddr_in *server, int server_length) {
 
 }
 
+void send_my_address(int sock, struct sockaddr_in *server, int server_length) {
+    struct ifaddrs *ifaddr;
+    in_addr_t address;
+    int request = 3;
 
+    if (getifaddrs(&ifaddr) == -1)
+        error("getifaddrs() - send_my_address()");
+
+    for (struct ifaddrs* current = ifaddr; current != NULL; current = current->ifa_next) {
+        if (current->ifa_addr == NULL)
+            continue;
+
+        if(strcmp(current->ifa_name, INTERNET_INTERFACE_NAME) == 0 && current->ifa_addr->sa_family == AF_INET) {
+            address = ((struct sockaddr_in *)current->ifa_addr)->sin_addr.s_addr;
+            goto FOR_END;
+        }
+    }
+    FOR_END:
+    freeifaddrs(ifaddr);
+    printf("Initiatiting sending of real address...");
+    if (sendto(sock, &request, sizeof (int), 0, server, server_length) < 0)
+        error("sendto() - send_my_address -> initiating sending my address\n");
+
+    if (sendto(sock, &address, sizeof (in_addr_t), 0, server, server_length) < 0)
+        error("sendto() - send_my_address -> failed to return address to server");
+    else
+        printf("\tSent: my address: %d\n-----------------\n", address);
+}
+
+/**
+ * Checks if wireguard interface is down and if so, stops the application
+ * @param sock
+ * @param server
+ * @param server_length
+ */
 void check_for_shutdown(int sock, struct sockaddr_in *server, int server_length) {
     struct ifaddrs *ifaddr;
     bool found;
 
 
     LOOP:
+        sleep(120);
 
         found = false;
         if (getifaddrs(&ifaddr) == -1)
             error("getifaddrs() - check_for_shutdown()");
 
-        for (struct ifaddrs *ifa = ifaddr; ifa != NULL && found == false;
-             ifa = ifa->ifa_next) {
-
-            if (ifa->ifa_addr == NULL)
+        for (struct ifaddrs *current = ifaddr; current != NULL && found == false; current = current->ifa_next) {
+            if (current->ifa_addr == NULL)
                 continue;
 
-            if (strcmp(ifa->ifa_name, WG_NAME) == 0)
+            if (strcmp(current->ifa_name, WG_INTERFACE_NAME) == 0)
                 found = true;
         }
 
@@ -142,9 +176,6 @@ void check_for_shutdown(int sock, struct sockaddr_in *server, int server_length)
             return_address(sock, server, server_length, NULL);
             exit(EXIT_SUCCESS);
         }
-
-        sleep(120);
-
     goto LOOP;
 
 }
@@ -157,27 +188,10 @@ void stop_interface() {
     system(STOP_INTERFACE_COMMAND);
 }
 
-void usage() {
-    int sock, server_length, n;
-    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
-
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)
-        error("socket()");
-
-    server->sin_family = AF_INET;
-    server->sin_addr.s_addr = INADDR_ANY;
-    server->sin_port = htons(DHCP_PORT);
-    server_length = sizeof (struct sockaddr_in);
-
-    struct in_addr* address = receive_address(sock, server, server_length);
-    //setup wg0 with address
-    //send allowed ips to server
-    //send public key to server
-    //spawn_check(sock, server, server_length_address)
-    //check died, exit || return address and exit
-}
-
+/**
+ * Gets the public key and the allowed ips from config file defined at the begging and stores them in global variables.
+ * This function uses global variables because those values remain unchanged from the beggining until the end of the execution.
+ */
 void get_data_from_config_file() {
     bool public_key_found = false, allowed_ips_found = false;
     char line[512], *word_list[64], delimit[]=" ";
@@ -205,8 +219,6 @@ void get_data_from_config_file() {
 
         if (public_key_found && allowed_ips_found) {
             fclose(fp);
-            printf("\tPUBLIC_KEY = %s", PUBLIC_KEY);
-            printf("\n\tALLOWED_IPS = %s", ALLOWED_IPS);
             return;
         }
     }
@@ -216,10 +228,10 @@ void get_data_from_config_file() {
           "- INVALID CONFIG FILE! PublicKey AND AllowedIPs are mandatory");
 }
 
-//    char *address;
-//    struct in_addr *addr = (struct in_addr*) malloc(sizeof (struct in_addr));
-//    addr->s_addr = 1;
-//    write_address_to_file(addr);
+/**
+ * Writes address to the config file as the address used inside the VPN
+ * @param address
+ */
 void write_address_to_file(struct in_addr *address) {
     char new_content[262144], line[512], *word_list[64], delimit[]=" ";
     char *readable_address = inet_ntoa(*address);
@@ -268,11 +280,19 @@ void write_address_to_file(struct in_addr *address) {
 }
 
 int main() {
+    int sock, server_length, n;
+    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
 
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        error("socket()");
 
-    start_interface();
-    stop_interface();
-//    get_data_from_config_file();
+    server->sin_family = AF_INET;
+    server->sin_addr.s_addr = INADDR_ANY;
+    server->sin_port = htons(DHCP_PORT);
+    server_length = sizeof (struct sockaddr_in);
+    send_my_address(sock, server, server_length);
+
     return 0;
 }
 
@@ -359,5 +379,26 @@ void might_be_useful_v2() {
 
     shutdown_server(sock, server, server_length);
 }
-//TODO: Also send current IP address to be sent (see if mandatory)
+
+void usage() {
+    int sock, server_length, n;
+    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        error("socket()");
+
+    server->sin_family = AF_INET;
+    server->sin_addr.s_addr = INADDR_ANY;
+    server->sin_port = htons(DHCP_PORT);
+    server_length = sizeof (struct sockaddr_in);
+
+    struct in_addr* address = receive_address(sock, server, server_length);
+    //setup wg0 with address
+    //send allowed ips to server
+    //send public key to server
+    //spawn_check(sock, server, server_length_address)
+    //check died, exit || return address and exit
+}
+
 //TODO: You are currently getting the private key of the server, you should add you private key to the config file and use that one (HINT: put it in the interface part and just don't check it after it was changed once)
