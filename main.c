@@ -20,8 +20,10 @@
 #define START_INTERFACE_COMMAND "wg-quick up wg0"
 #define STOP_INTERFACE_COMMAND "wg-quick down wg0"
 
-
-char PUBLIC_KEY[256], ALLOWED_IPS[256];
+struct Configuration {
+    char PUBLIC_KEY[256];
+    char ALLOWED_IPS[256];
+} MY_CONFIGURATION;
 
 void error(char *message) {
     perror(message);
@@ -209,11 +211,11 @@ void get_data_from_config_file() {
             word_list[++i] = strtok(NULL, delimit);
 
         if (strcmp(word_list[0], "PublicKey") == 0) {
-            strcpy(PUBLIC_KEY, word_list[2]);
+            strcpy(MY_CONFIGURATION.PUBLIC_KEY, word_list[2]);
             public_key_found = true;
         }
         if (strcmp(word_list[0], "AllowedIPs") == 0) {
-            strcpy(ALLOWED_IPS, word_list[2]);
+            strcpy(MY_CONFIGURATION.ALLOWED_IPS, word_list[2]);
             allowed_ips_found = true;
         }
 
@@ -279,19 +281,58 @@ void write_address_to_file(struct in_addr *address) {
     close(new_file);
 }
 
+void send_my_configuration(int sock, struct sockaddr_in *server, int server_length) {
+    printf("Attempting to send MY_CONFIGURATION.....\n");
+    if (sendto(sock, (struct Configuration*)&MY_CONFIGURATION, (1024 + (sizeof MY_CONFIGURATION)), 0, server, server_length) < 0) {
+        error("sendto() - send_my_configuration - sending of configuration failed");
+    }
+
+    printf("Successfully sent: MY_CONFIGURATION (struct Configuration)"
+                                    "\n\t\tPUBLIC_KEY (char[256]) : %s"
+                                    "\n\t\tALLOWED_IPS (char[256] : %s\n",
+                                    MY_CONFIGURATION.PUBLIC_KEY, MY_CONFIGURATION.ALLOWED_IPS);
+}
+
+bool is_auto_configurable() {
+    char line[512], *word_list[64], delimit[] = " ";
+    FILE *config_file;
+    int words_per_line;
+    config_file = fopen(OLD_CONFIG_FILE, "r");
+
+    if (config_file == NULL)
+        error("fopen() - CONFIG_FILE");
+
+    while (fgets (line, 512, config_file)) {
+        words_per_line = 0;
+        word_list[words_per_line] = strtok(line, delimit);
+        while (word_list[words_per_line] != NULL)
+            word_list[++words_per_line] = strtok(NULL, delimit);
+
+        if (strcmp(word_list[0], "AutoConfigurable") == 0 && strcmp(word_list[2], "True") == 0) {
+            fclose(config_file);
+            return true;
+        }
+    }
+    fclose(config_file);
+    return false;
+}
+
 int main() {
-    int sock, server_length, n;
-    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
-
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)
-        error("socket()");
-
-    server->sin_family = AF_INET;
-    server->sin_addr.s_addr = INADDR_ANY;
-    server->sin_port = htons(DHCP_PORT);
-    server_length = sizeof (struct sockaddr_in);
-    send_my_address(sock, server, server_length);
+//    int sock, server_length, n;
+//    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
+//
+//    sock = socket(AF_INET, SOCK_DGRAM, 0);
+//    if (sock < 0)
+//        error("socket()");
+//
+//    server->sin_family = AF_INET;
+//    server->sin_addr.s_addr = INADDR_ANY;
+//    server->sin_port = htons(DHCP_PORT);
+//    server_length = sizeof (struct sockaddr_in);
+//    send_my_address(sock, server, server_length);
+    get_data_from_config_file();
+    printf("%s", MY_CONFIGURATION.PUBLIC_KEY);
+    printf("\n%s", MY_CONFIGURATION.ALLOWED_IPS);
 
     return 0;
 }
@@ -399,6 +440,37 @@ void usage() {
     //send public key to server
     //spawn_check(sock, server, server_length_address)
     //check died, exit || return address and exit
+}
+
+void send_my_full_configuration() {
+
+}
+
+int run(int argc, char *argv[]) {
+    if (!is_auto_configurable()) {
+        start_interface();
+        goto END;
+    }
+    get_data_from_config_file();
+    int sock, server_length, n;
+    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        error("socket()");
+
+    server->sin_family = AF_INET;
+    server->sin_addr.s_addr = INADDR_ANY;
+    server->sin_port = htons(DHCP_PORT);
+    server_length = sizeof (struct sockaddr_in);
+
+    struct in_addr *my_address = receive_address(sock, server, server_length);
+    write_address_to_file(my_address);
+    send_my_address(sock, server, server_length);
+    send_configuration(sock, server, server_length);
+
+    END:
+    return 0;
 }
 
 //TODO: You are currently getting the private key of the server, you should add you private key to the config file and use that one (HINT: put it in the interface part and just don't check it after it was changed once)
