@@ -9,8 +9,6 @@
 #include <linux/if_link.h>
 #include <stdbool.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <fcntl.h>
 
 #define WG_INTERFACE_NAME "wg0"
 #define INTERNET_INTERFACE_NAME "eno1"
@@ -19,6 +17,7 @@
 #define NEW_CONFIG_FILE "/etc/wireguard/wg1.conf"
 #define START_INTERFACE_COMMAND "wg-quick up wg0"
 #define STOP_INTERFACE_COMMAND "wg-quick down wg0"
+
 
 struct Configuration {
     char PUBLIC_KEY[256];
@@ -190,12 +189,32 @@ void stop_interface() {
     system(STOP_INTERFACE_COMMAND);
 }
 
+void generate_and_set_private_key(char *private_key) {
+    char output[256], command[128] = "echo ";
+    FILE *output_file;
+
+    strcat(command, private_key);
+    memmove(&command[49], &command[50], strlen(command) - 49);
+    strcat(command, " | tee privatekey | wg pubkey");
+
+    output_file = popen(command, "r");
+    if (output_file == NULL)
+        error("popen() - command not run properly");
+
+    if (fgets(output, sizeof output, output_file) == NULL)
+        error("fgets() - something went wrong with reading the output of the command");
+
+    pclose(output_file);
+
+    strcpy(MY_CONFIGURATION.PUBLIC_KEY, output);
+}
+
 /**
  * Gets the public key and the allowed ips from config file defined at the begging and stores them in global variables.
  * This function uses global variables because those values remain unchanged from the beggining until the end of the execution.
  */
 void get_data_from_config_file() {
-    bool public_key_found = false, allowed_ips_found = false;
+    bool private_key_found = false, allowed_ips_found = false;
     char line[512], *word_list[64], delimit[]=" ";
     FILE *fp;
     int i;
@@ -210,16 +229,16 @@ void get_data_from_config_file() {
         while (word_list[i] != NULL)
             word_list[++i] = strtok(NULL, delimit);
 
-        if (strcmp(word_list[0], "PublicKey") == 0) {
-            strcpy(MY_CONFIGURATION.PUBLIC_KEY, word_list[2]);
-            public_key_found = true;
+        if (strcmp(word_list[0], "PrivateKey") == 0) {
+            generate_and_set_private_key(word_list[2]);
+            private_key_found = true;
         }
         if (strcmp(word_list[0], "AllowedIPs") == 0) {
             strcpy(MY_CONFIGURATION.ALLOWED_IPS, word_list[2]);
             allowed_ips_found = true;
         }
 
-        if (public_key_found && allowed_ips_found) {
+        if (private_key_found && allowed_ips_found) {
             fclose(fp);
             return;
         }
@@ -442,17 +461,13 @@ void usage() {
     //check died, exit || return address and exit
 }
 
-void send_my_full_configuration() {
-
-}
-
 int run(int argc, char *argv[]) {
     if (!is_auto_configurable()) {
         start_interface();
         goto END;
     }
     get_data_from_config_file();
-    int sock, server_length, n;
+    int sock, server_length;
     struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
 
     sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -472,5 +487,3 @@ int run(int argc, char *argv[]) {
     END:
     return 0;
 }
-
-//TODO: You are currently getting the private key of the server, you should add you private key to the config file and use that one (HINT: put it in the interface part and just don't check it after it was changed once)
