@@ -11,18 +11,25 @@
 #include <string.h>
 
 #define WG_INTERFACE_NAME "wg0"
+#define WG_DUMMY_INTERFACE_NAME "wg_dummmy"
 #define INTERNET_INTERFACE_NAME "eno1"
+
 #define DHCP_PORT 6969
+
 #define OLD_CONFIG_FILE "/etc/wireguard/wg0.conf"
-#define NEW_CONFIG_FILE "/etc/wireguard/wg1.conf"
+#define NEW_CONFIG_FILE "/etc/wireguard/wg_dummmy.conf"
+
 #define START_INTERFACE_COMMAND "wg-quick up wg0"
-#define STOP_INTERFACE_COMMAND "wg-quick down wg0"
+#define START_DUMMY_INTERFACE_COMMAND "wg-quick up wg_dummmy"
+#define STOP_INTERFACE_COMMAND "wg-quick down wg_dummmy"
 
 
-struct Configuration {
+struct Message {
+    int OPTION;
     char PUBLIC_KEY[256];
     char ALLOWED_IPS[256];
-} MY_CONFIGURATION;
+    in_addr_t ADDRESS;
+} MY_MESSAGE;
 
 void error(char *message) {
     perror(message);
@@ -100,6 +107,28 @@ void return_address(int sock, struct sockaddr_in *server, int server_length, str
     free(address);
 }
 
+void send_message(int sock, struct sockaddr_in *server, int server_length) {
+    if (sendto(sock, (struct Message*)&MY_MESSAGE, (1024 + (sizeof MY_MESSAGE)), 0, server, server_length) < 0) {
+        error("sendto() - send_my_configuration - sending of configuration failed");
+    }
+
+    printf("Successfully sent: MY_CONFIGURATION (struct Configuration)"
+           "\n\t\tOPTION (int) : %d"
+           "\n\t\tPUBLIC_KEY (char[256]) : %s"
+           "\n\t\tALLOWED_IPS (char[256] : %s"
+           "\n\t\tADDRESS (in_addr_t) : %d",
+           MY_MESSAGE.OPTION, MY_MESSAGE.PUBLIC_KEY, MY_MESSAGE.ALLOWED_IPS, MY_MESSAGE.ADDRESS);
+}
+
+void return_address_v2(int sock, struct sockaddr_in *server, int server_length, struct in_addr *address) {
+    MY_MESSAGE.OPTION = 1;
+    MY_MESSAGE.ADDRESS = address->s_addr;
+
+    send_message(sock, server, server_length);
+
+    free(address);
+}
+
 /**
  * Signals server to shutdown
  * @param sock
@@ -145,6 +174,20 @@ void send_my_address(int sock, struct sockaddr_in *server, int server_length) {
         printf("\tSent: my address: %d\n-----------------\n", address);
 }
 
+
+void start_interface(char *interface_name) {
+    if (strcmp(interface_name, WG_INTERFACE_NAME) == 0) {
+        system(START_INTERFACE_COMMAND);
+        return;
+    }
+
+    system(START_DUMMY_INTERFACE_COMMAND);}
+
+void stop_interface() {
+    system(STOP_INTERFACE_COMMAND);
+}
+
+
 /**
  * Checks if wireguard interface is down and if so, stops the application
  * @param sock
@@ -175,18 +218,11 @@ void check_for_shutdown(int sock, struct sockaddr_in *server, int server_length)
 
         if (found == false) {
             return_address(sock, server, server_length, NULL);
+            stop_interface();
             exit(EXIT_SUCCESS);
         }
     goto LOOP;
 
-}
-
-void start_interface() {
-    system(START_INTERFACE_COMMAND);
-}
-
-void stop_interface() {
-    system(STOP_INTERFACE_COMMAND);
 }
 
 void generate_and_set_private_key(char *private_key) {
@@ -206,7 +242,7 @@ void generate_and_set_private_key(char *private_key) {
 
     pclose(output_file);
 
-    strcpy(MY_CONFIGURATION.PUBLIC_KEY, output);
+    strcpy(MY_MESSAGE.PUBLIC_KEY, output);
 }
 
 /**
@@ -234,7 +270,7 @@ void get_data_from_config_file() {
             private_key_found = true;
         }
         if (strcmp(word_list[0], "AllowedIPs") == 0) {
-            strcpy(MY_CONFIGURATION.ALLOWED_IPS, word_list[2]);
+            strcpy(MY_MESSAGE.ALLOWED_IPS, word_list[2]);
             allowed_ips_found = true;
         }
 
@@ -300,16 +336,12 @@ void write_address_to_file(struct in_addr *address) {
     close(new_file);
 }
 
+
 void send_my_configuration(int sock, struct sockaddr_in *server, int server_length) {
     printf("Attempting to send MY_CONFIGURATION.....\n");
-    if (sendto(sock, (struct Configuration*)&MY_CONFIGURATION, (1024 + (sizeof MY_CONFIGURATION)), 0, server, server_length) < 0) {
-        error("sendto() - send_my_configuration - sending of configuration failed");
-    }
-
-    printf("Successfully sent: MY_CONFIGURATION (struct Configuration)"
-                                    "\n\t\tPUBLIC_KEY (char[256]) : %s"
-                                    "\n\t\tALLOWED_IPS (char[256] : %s\n",
-                                    MY_CONFIGURATION.PUBLIC_KEY, MY_CONFIGURATION.ALLOWED_IPS);
+    MY_MESSAGE.OPTION = 0;
+    MY_MESSAGE.ADDRESS = -1;
+    send_message(sock, server, server_length);
 }
 
 bool is_auto_configurable() {
@@ -335,6 +367,28 @@ bool is_auto_configurable() {
     fclose(config_file);
     return false;
 }
+void might_be_useful_v2() {
+    int sock, server_length, n;
+    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        error("socket()");
+
+    server->sin_family = AF_INET;
+    server->sin_addr.s_addr = INADDR_ANY;
+    server->sin_port = htons(DHCP_PORT);
+    server_length = sizeof (struct sockaddr_in);
+
+    send_configuration(sock, server, server_length);
+    struct in_addr* a1 = receive_address(sock, server, server_length);
+    struct in_addr* a2 = receive_address(sock, server, server_length);
+    struct in_addr* a3 = receive_address(sock, server, server_length);
+
+    return_address(sock, server, server_length, a2);
+
+    shutdown_server(sock, server, server_length);
+}
 
 int main() {
 //    int sock, server_length, n;
@@ -350,9 +404,9 @@ int main() {
 //    server_length = sizeof (struct sockaddr_in);
 //    send_my_address(sock, server, server_length);
     get_data_from_config_file();
-    printf("%s", MY_CONFIGURATION.PUBLIC_KEY);
-    printf("\n%s", MY_CONFIGURATION.ALLOWED_IPS);
-
+    printf("%s", MY_MESSAGE.PUBLIC_KEY);
+    printf("\n%s", MY_MESSAGE.ALLOWED_IPS);
+    might_be_useful_v2();
     return 0;
 }
 
@@ -417,28 +471,6 @@ void mmight_be_useful() {
     exit(EXIT_SUCCESS);
 }
 
-void might_be_useful_v2() {
-    int sock, server_length, n;
-    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
-
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)
-        error("socket()");
-
-    server->sin_family = AF_INET;
-    server->sin_addr.s_addr = INADDR_ANY;
-    server->sin_port = htons(DHCP_PORT);
-    server_length = sizeof (struct sockaddr_in);
-
-    send_configuration(sock, server, server_length);
-    struct in_addr* a1 = receive_address(sock, server, server_length);
-    struct in_addr* a2 = receive_address(sock, server, server_length);
-    struct in_addr* a3 = receive_address(sock, server, server_length);
-
-    return_address(sock, server, server_length, a2);
-
-    shutdown_server(sock, server, server_length);
-}
 
 void usage() {
     int sock, server_length, n;
@@ -463,7 +495,7 @@ void usage() {
 
 int run(int argc, char *argv[]) {
     if (!is_auto_configurable()) {
-        start_interface();
+        start_interface(WG_INTERFACE_NAME);
         goto END;
     }
     get_data_from_config_file();
@@ -481,9 +513,16 @@ int run(int argc, char *argv[]) {
 
     struct in_addr *my_address = receive_address(sock, server, server_length);
     write_address_to_file(my_address);
-    send_my_address(sock, server, server_length);
-    send_configuration(sock, server, server_length);
+//TODO: MAYBE USE THIS SHIT?
+//    send_my_address(sock, server, server_length);
+//    send_configuration(sock, server, server_length);
 
-    END:
+
+    send_my_configuration(sock, server, server_length);
+    start_interface(WG_DUMMY_INTERFACE_NAME);
+
+    check_for_shutdown(sock, server, server_length);
+
+END:
     return 0;
 }
