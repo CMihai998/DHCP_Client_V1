@@ -316,7 +316,8 @@ void write_address_to_file(struct in_addr *address) {
                     strcat(new_content, "\n");
                     address_written = true;
                 } else {
-                    strcat(new_content, word_list[i]);
+                    if (strcmp("AutoConfigurable", word_list[0]) != 0)
+                        strcat(new_content, word_list[i]);
                 }
                 word_list[++i] = strtok(NULL, delimit);
             }
@@ -358,7 +359,7 @@ bool is_auto_configurable() {
         while (word_list[words_per_line] != NULL)
             word_list[++words_per_line] = strtok(NULL, delimit);
 
-        if (strcmp(word_list[0], "AutoConfigurable") == 0 && strcmp(word_list[2], "True") == 0) {
+        if (strcmp(word_list[0], "AutoConfigurable") == 0 && strcmp(word_list[2], "True\n") == 0) {
             fclose(config_file);
             return true;
         }
@@ -389,6 +390,42 @@ void might_be_useful_v2() {
     shutdown_server(sock, server, server_length);
 }
 
+
+int run() {
+    if (!is_auto_configurable()) {
+        start_interface(WG_INTERFACE_NAME);
+        goto END;
+    }
+    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
+    int sock, server_length;
+
+    get_data_from_config_file();
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)
+        error("socket()");
+
+    server->sin_family = AF_INET;
+    server->sin_addr.s_addr = INADDR_ANY; //TODO change this address to address of server
+    server->sin_port = htons(DHCP_PORT);
+    server_length = sizeof (struct sockaddr_in);
+    send_my_configuration(sock, server, server_length);
+    struct in_addr *my_address = receive_address(sock, server, server_length);
+    write_address_to_file(my_address);
+//TODO: MAYBE USE THIS SHIT?
+//    send_my_address(sock, server, server_length);
+//    send_configuration(sock, server, server_length);
+
+
+    start_interface(WG_DUMMY_INTERFACE_NAME);
+
+    check_for_shutdown(sock, server, server_length);
+
+    END:
+    return 0;
+}
+
+
 int main() {
 //    int sock, server_length, n;
 //    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
@@ -402,11 +439,7 @@ int main() {
 //    server->sin_port = htons(DHCP_PORT);
 //    server_length = sizeof (struct sockaddr_in);
 //    send_my_address(sock, server, server_length);
-    get_data_from_config_file();
-    printf("%s", MY_MESSAGE.PUBLIC_KEY);
-    printf("\n%s", MY_MESSAGE.ALLOWED_IPS);
-    might_be_useful_v2();
-    return 0;
+    run();
 }
 
 
@@ -490,39 +523,4 @@ void usage() {
     //send public key to server
     //spawn_check(sock, server, server_length_address)
     //check died, exit || return address and exit
-}
-
-int run(int argc, char *argv[]) {
-    if (!is_auto_configurable()) {
-        start_interface(WG_INTERFACE_NAME);
-        goto END;
-    }
-    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
-    int sock, server_length;
-
-    get_data_from_config_file();
-
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)
-        error("socket()");
-
-    server->sin_family = AF_INET;
-    server->sin_addr.s_addr = INADDR_ANY;
-    server->sin_port = htons(DHCP_PORT);
-    server_length = sizeof (struct sockaddr_in);
-
-    struct in_addr *my_address = receive_address(sock, server, server_length);
-    write_address_to_file(my_address);
-//TODO: MAYBE USE THIS SHIT?
-//    send_my_address(sock, server, server_length);
-//    send_configuration(sock, server, server_length);
-
-
-    send_my_configuration(sock, server, server_length);
-    start_interface(WG_DUMMY_INTERFACE_NAME);
-
-    check_for_shutdown(sock, server, server_length);
-
-END:
-    return 0;
 }
