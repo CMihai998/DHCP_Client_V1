@@ -210,7 +210,7 @@ void check_for_shutdown(int sock, struct sockaddr_in *server, int server_length)
             if (current->ifa_addr == NULL)
                 continue;
 
-            if (strcmp(current->ifa_name, WG_INTERFACE_NAME) == 0)
+            if (strcmp(current->ifa_name, WG_DUMMY_INTERFACE_NAME) == 0)
                 found = true;
         }
 
@@ -222,7 +222,6 @@ void check_for_shutdown(int sock, struct sockaddr_in *server, int server_length)
             exit(EXIT_SUCCESS);
         }
     goto LOOP;
-
 }
 
 void generate_and_set_private_key(char *private_key) {
@@ -498,9 +497,10 @@ int run(int argc, char *argv[]) {
         start_interface(WG_INTERFACE_NAME);
         goto END;
     }
-    get_data_from_config_file();
-    int sock, server_length;
     struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
+    int sock, server_length;
+
+    get_data_from_config_file();
 
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0)
