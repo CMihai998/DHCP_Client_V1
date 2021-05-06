@@ -9,12 +9,14 @@
 #include <linux/if_link.h>
 #include <stdbool.h>
 #include <string.h>
+#include<arpa/inet.h>
 
 #define WG_INTERFACE_NAME "wg0"
 #define WG_DUMMY_INTERFACE_NAME "wg_dummmy"
 #define INTERNET_INTERFACE_NAME "eno1"
 
-#define DHCP_PORT 6969
+#define DHCP_PORT 8888
+#define SERVER "192.168.3.15"
 
 #define OLD_CONFIG_FILE "/etc/wireguard/wg0.conf"
 #define NEW_CONFIG_FILE "/etc/wireguard/wg_dummmy.conf"
@@ -22,7 +24,7 @@
 #define START_INTERFACE_COMMAND "wg-quick up wg0"
 #define START_DUMMY_INTERFACE_COMMAND "wg-quick up wg_dummmy"
 #define STOP_INTERFACE_COMMAND "wg-quick down wg_dummmy"
-
+#define DELETE_OLD_CONFIG_FILE_COMMAND "sudo rm /etc/wireguard/wg_dummmy.conf"
 
 struct Message {
     int OPTION;
@@ -72,10 +74,6 @@ void send_configuration(int sock, struct sockaddr_in *server, int server_length)
  * @return
  */
 struct in_addr * receive_address(int sock, struct sockaddr_in *server, int server_length) {
-    int request = 1;
-    printf("Initiating reception of an address...\n");
-    if (sendto(sock, &request, sizeof (int), 0, server, server_length) < 0)
-        error("sendto() - receive_address -> initialization of address receival\n");
     struct in_addr *address = (struct in_addr*) malloc(sizeof (struct in_addr));
 
     printf("Receiving address...\n");
@@ -116,7 +114,7 @@ void send_message(int sock, struct sockaddr_in *server, int server_length) {
            "\n\t\tOPTION (int) : %d"
            "\n\t\tPUBLIC_KEY (char[256]) : %s"
            "\n\t\tALLOWED_IPS (char[256] : %s"
-           "\n\t\tADDRESS (in_addr_t) : %d",
+           "\n\t\tADDRESS (in_addr_t) : %d\n",
            MY_MESSAGE.OPTION, MY_MESSAGE.PUBLIC_KEY, MY_MESSAGE.ALLOWED_IPS, MY_MESSAGE.ADDRESS);
 }
 
@@ -327,7 +325,7 @@ void write_address_to_file(struct in_addr *address) {
     }
     close(input_file);
     printf("%s", new_content);
-
+    system(DELETE_OLD_CONFIG_FILE_COMMAND);
     new_file = fopen(NEW_CONFIG_FILE, "w");
     if (new_file == NULL)
         error("fopen() - NEW_CONFIG_FILE");
@@ -390,25 +388,25 @@ void might_be_useful_v2() {
     shutdown_server(sock, server, server_length);
 }
 
-
 int run() {
     if (!is_auto_configurable()) {
         start_interface(WG_INTERFACE_NAME);
         goto END;
     }
     struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
-    int sock, server_length;
+    int sock, server_length = sizeof (struct sockaddr_in);
 
     get_data_from_config_file();
 
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0)
         error("socket()");
 
     server->sin_family = AF_INET;
-    server->sin_addr.s_addr = INADDR_ANY; //TODO change this address to address of server
     server->sin_port = htons(DHCP_PORT);
-    server_length = sizeof (struct sockaddr_in);
+    if (inet_aton(SERVER, &server->sin_addr) == 0)
+        error("inet_aton - setting server address failed");
+
     send_my_configuration(sock, server, server_length);
     struct in_addr *my_address = receive_address(sock, server, server_length);
     write_address_to_file(my_address);
@@ -439,6 +437,7 @@ int main() {
 //    server->sin_port = htons(DHCP_PORT);
 //    server_length = sizeof (struct sockaddr_in);
 //    send_my_address(sock, server, server_length);
+//    run();
     run();
 }
 
