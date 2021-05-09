@@ -13,10 +13,10 @@
 
 #define WG_INTERFACE_NAME "wg0"
 #define WG_DUMMY_INTERFACE_NAME "wg_dummmy"
-#define INTERNET_INTERFACE_NAME "eno1"
+#define INTERNET_INTERFACE_NAME "enp0s3"
 
 #define DHCP_PORT 8888
-#define SERVER "192.168.3.15"
+#define SERVER "192.168.3.24"
 
 #define OLD_CONFIG_FILE "/etc/wireguard/wg0.conf"
 #define NEW_CONFIG_FILE "/etc/wireguard/wg_dummmy.conf"
@@ -26,11 +26,15 @@
 #define STOP_INTERFACE_COMMAND "wg-quick down wg_dummmy"
 #define DELETE_OLD_CONFIG_FILE_COMMAND "sudo rm /etc/wireguard/wg_dummmy.conf"
 
+int NET_MASK;
+
 struct Message {
     int OPTION;
     char PUBLIC_KEY[256];
     char ALLOWED_IPS[256];
     in_addr_t ADDRESS;
+    char ENDPOINT[30];
+    char PORT[10];
 } MY_MESSAGE;
 
 void error(char *message) {
@@ -81,6 +85,11 @@ struct in_addr * receive_address(int sock, struct sockaddr_in *server, int serve
         error("recvfrom() - receive_address -> address was not received");
     else
         printf("\tReceived: address: %d\n-----------------\n", address->s_addr);
+
+    if (recvfrom(sock, &NET_MASK, sizeof (int), 0, (struct sockaddr*) server, &server_length) < 0)
+        error("recvfrom() - receive_address -> mask was not received");
+    else
+        printf("\tReceived: mask: %d\n-----------------\n", NET_MASK);
     return address;
 }
 
@@ -114,8 +123,10 @@ void send_message(int sock, struct sockaddr_in *server, int server_length) {
            "\n\t\tOPTION (int) : %d"
            "\n\t\tPUBLIC_KEY (char[256]) : %s"
            "\n\t\tALLOWED_IPS (char[256] : %s"
-           "\n\t\tADDRESS (in_addr_t) : %d\n",
-           MY_MESSAGE.OPTION, MY_MESSAGE.PUBLIC_KEY, MY_MESSAGE.ALLOWED_IPS, MY_MESSAGE.ADDRESS);
+           "\n\t\tADDRESS (in_addr_t) : %d"
+           "\n\t\tENDPOINT (char[30]) : %s"
+           "\n\t\tPORT (char[6]) : %s\n",
+           MY_MESSAGE.OPTION, MY_MESSAGE.PUBLIC_KEY, MY_MESSAGE.ALLOWED_IPS, MY_MESSAGE.ADDRESS, MY_MESSAGE.ENDPOINT, MY_MESSAGE.PORT);
 }
 
 void return_address_v2(int sock, struct sockaddr_in *server, int server_length, struct in_addr *address) {
@@ -143,7 +154,7 @@ void shutdown_server(int sock, struct sockaddr_in *server, int server_length) {
 
 }
 
-void send_my_address(int sock, struct sockaddr_in *server, int server_length) {
+void send_my_address() {
     struct ifaddrs *ifaddr;
     in_addr_t address;
     int request = 3;
@@ -157,19 +168,23 @@ void send_my_address(int sock, struct sockaddr_in *server, int server_length) {
 
         if(strcmp(current->ifa_name, INTERNET_INTERFACE_NAME) == 0 && current->ifa_addr->sa_family == AF_INET) {
             address = ((struct sockaddr_in *)current->ifa_addr)->sin_addr.s_addr;
+            char *readable_endpoint = inet_ntoa(((struct sockaddr_in *)current->ifa_addr)->sin_addr);
+            printf("\t\t\t%s\n", readable_endpoint);
+            strcpy(MY_MESSAGE.ENDPOINT, readable_endpoint);
             goto FOR_END;
         }
     }
     FOR_END:
     freeifaddrs(ifaddr);
-    printf("Initiatiting sending of real address...");
-    if (sendto(sock, &request, sizeof (int), 0, server, server_length) < 0)
-        error("sendto() - send_my_address -> initiating sending my address\n");
+//    printf("Initiating sending of real address...");
+//    if (sendto(sock, &request, sizeof (int), 0, server, server_length) < 0)
+//        error("sendto() - send_my_address -> initiating sending my address\n");
+//
+//    if (sendto(sock, &address, sizeof (in_addr_t), 0, server, server_length) < 0)
+//        error("sendto() - send_my_address -> failed to return address to server");
+//    else
+//        printf("\tSent: my address: %d\n-----------------\n", address);
 
-    if (sendto(sock, &address, sizeof (in_addr_t), 0, server, server_length) < 0)
-        error("sendto() - send_my_address -> failed to return address to server");
-    else
-        printf("\tSent: my address: %d\n-----------------\n", address);
 }
 
 
@@ -247,7 +262,7 @@ void generate_and_set_private_key(char *private_key) {
  * This function uses global variables because those values remain unchanged from the beggining until the end of the execution.
  */
 void get_data_from_config_file() {
-    bool private_key_found = false, allowed_ips_found = false;
+    bool private_key_found = false, allowed_ips_found = false, listen_port_found = false;
     char line[512], *word_list[64], delimit[]=" ";
     FILE *fp;
     int i;
@@ -271,7 +286,12 @@ void get_data_from_config_file() {
             allowed_ips_found = true;
         }
 
-        if (private_key_found && allowed_ips_found) {
+        if (strcmp(word_list[0], "ListenPort") == 0) {
+            strcpy(MY_MESSAGE.PORT, word_list[2]);
+            listen_port_found = true;
+        }
+
+        if (private_key_found && allowed_ips_found && listen_port_found) {
             fclose(fp);
             return;
         }
@@ -287,7 +307,7 @@ void get_data_from_config_file() {
  * @param address
  */
 void write_address_to_file(struct in_addr *address) {
-    char new_content[262144], line[512], *word_list[64], delimit[]=" ";
+    char new_content[262144], line[512], *word_list[64], mask[3], delimit[]=" ";
     char *readable_address = inet_ntoa(*address);
     FILE *input_file, *new_file;
     bool address_written = false;
@@ -311,6 +331,9 @@ void write_address_to_file(struct in_addr *address) {
                     new_content[length + 1] = ' ';
                     new_content[length + 2] = '\0';
                     strcat(new_content, readable_address);
+                    sprintf(mask, "%d", NET_MASK);
+//                    strcat(new_content, "/");
+//                    strcat(new_content, mask);
                     strcat(new_content, "\n");
                     address_written = true;
                 } else {
@@ -406,7 +429,7 @@ int run() {
     server->sin_port = htons(DHCP_PORT);
     if (inet_aton(SERVER, &server->sin_addr) == 0)
         error("inet_aton - setting server address failed");
-
+    send_my_address();
     send_my_configuration(sock, server, server_length);
     struct in_addr *my_address = receive_address(sock, server, server_length);
     write_address_to_file(my_address);
