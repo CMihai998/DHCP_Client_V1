@@ -24,6 +24,7 @@
 #define START_INTERFACE_COMMAND "wg-quick up wg0"
 #define START_DUMMY_INTERFACE_COMMAND "wg-quick up wg_dummmy"
 #define STOP_INTERFACE_COMMAND "wg-quick down wg_dummmy"
+#define CREATE_NEW_CONFIG_FILE_COMMAND "touch /etc/wireguard/wg_dummmy.conf"
 #define DELETE_OLD_CONFIG_FILE_COMMAND "sudo rm /etc/wireguard/wg_dummmy.conf"
 
 int NET_MASK;
@@ -307,15 +308,28 @@ void get_data_from_config_file() {
  * @param address
  */
 void write_address_to_file(struct in_addr *address) {
-    char new_content[262144], line[512], *word_list[64], mask[3], delimit[]=" ";
+    char new_content[262144], line[512], *word_list[64], new_line[512], delimit[]=" ", mask_str[3];
     char *readable_address = inet_ntoa(*address);
     FILE *input_file, *new_file;
     bool address_written = false;
     int i;
+    sprintf(mask_str, "%d", NET_MASK);
+    if (NET_MASK < 10)
+        mask_str[1] = '\0';
+    else
+        mask_str[2] = '\0';
 
     input_file = fopen(OLD_CONFIG_FILE, "r");
     if (input_file == NULL)
         error("fopen() - OLD_CONFIG_FILE");
+
+    system(DELETE_OLD_CONFIG_FILE_COMMAND);
+    system(CREATE_NEW_CONFIG_FILE_COMMAND);
+
+    new_file = fopen(NEW_CONFIG_FILE, "w");
+    if (new_file == NULL)
+        error("fopen() - NEW_CONFIG_FILE");
+
 
     while (fgets(line, 512, input_file)) {
         i = 0;
@@ -331,30 +345,45 @@ void write_address_to_file(struct in_addr *address) {
                     new_content[length + 1] = ' ';
                     new_content[length + 2] = '\0';
                     strcat(new_content, readable_address);
-                    sprintf(mask, "%d", NET_MASK);
-//                    strcat(new_content, "/");
-//                    strcat(new_content, mask);
+                    strcat(new_content, "/");
+                    strcat(new_content, mask_str);
                     strcat(new_content, "\n");
                     address_written = true;
+                    strcpy(new_line, "Address = ");
+                    strcpy(new_line, readable_address);
+                    strcpy(new_line, "/");
+                    strcpy(new_line, mask_str);
                 } else {
-                    if (strcmp("AutoConfigurable", word_list[0]) != 0)
+                    if (strcmp("AutoConfigurable", word_list[0]) != 0) {
                         strcat(new_content, word_list[i]);
+                    }
                 }
                 word_list[++i] = strtok(NULL, delimit);
             }
+            if (!address_written && strcmp("AutoConfigurable", word_list[0]) != 0) {
+                strcpy(new_line, "");
+                for (int j = 0; j < i - 1; j++) {
+                    strcat(new_line, word_list[j]);
+                    strcat(new_line, " ");
+                }
+                strcat(line, word_list[i - 1]);
+            }
+            fprintf(new_file, "%s", new_line);
+            printf("%s", new_line);
+
         } else {
             strcat(new_content, line);
+            fprintf(new_file, "%s", line);
+            printf("%s", line);
         }
     }
     close(input_file);
-    printf("%s", new_content);
-    system(DELETE_OLD_CONFIG_FILE_COMMAND);
-    new_file = fopen(NEW_CONFIG_FILE, "w");
-    if (new_file == NULL)
-        error("fopen() - NEW_CONFIG_FILE");
 
-    fputs(new_content, new_file);
     close(new_file);
+
+//    fprintf(new_file, "%s", new_content);
+    printf("%s", new_content);
+
 }
 
 
