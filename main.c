@@ -1,4 +1,3 @@
-#define _GNU_SOURCE     /* To get defns of NI_MAXSERV and NI_MAXHOST */
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -9,7 +8,6 @@
 #include <linux/if_link.h>
 #include <stdbool.h>
 #include <string.h>
-#include<arpa/inet.h>
 
 #define WG_INTERFACE_NAME "wg0"
 #define WG_DUMMY_INTERFACE_NAME "wg_dummmy"
@@ -155,37 +153,24 @@ void shutdown_server(int sock, struct sockaddr_in *server, int server_length) {
 
 }
 
-void send_my_address() {
+void set_my_address() {
     struct ifaddrs *ifaddr;
-    in_addr_t address;
-    int request = 3;
 
     if (getifaddrs(&ifaddr) == -1)
-        error("getifaddrs() - send_my_address()");
+        error("getifaddrs() - set_my_address()");
 
     for (struct ifaddrs* current = ifaddr; current != NULL; current = current->ifa_next) {
         if (current->ifa_addr == NULL)
             continue;
 
         if(strcmp(current->ifa_name, INTERNET_INTERFACE_NAME) == 0 && current->ifa_addr->sa_family == AF_INET) {
-            address = ((struct sockaddr_in *)current->ifa_addr)->sin_addr.s_addr;
             char *readable_endpoint = inet_ntoa(((struct sockaddr_in *)current->ifa_addr)->sin_addr);
-            printf("\t\t\t%s\n", readable_endpoint);
             strcpy(MY_MESSAGE.ENDPOINT, readable_endpoint);
             goto FOR_END;
         }
     }
     FOR_END:
     freeifaddrs(ifaddr);
-//    printf("Initiating sending of real address...");
-//    if (sendto(sock, &request, sizeof (int), 0, server, server_length) < 0)
-//        error("sendto() - send_my_address -> initiating sending my address\n");
-//
-//    if (sendto(sock, &address, sizeof (in_addr_t), 0, server, server_length) < 0)
-//        error("sendto() - send_my_address -> failed to return address to server");
-//    else
-//        printf("\tSent: my address: %d\n-----------------\n", address);
-
 }
 
 
@@ -308,7 +293,7 @@ void get_data_from_config_file() {
  * @param address
  */
 
-void write_address_to_fileV2(struct in_addr *address) {
+void write_address_to_file(struct in_addr *address) {
     char line[512], new_line[512], *word_list[64], delimit[] = " ", mask_str[3];
     char *readable_address = inet_ntoa(*address);
     FILE *input_file, *new_file;
@@ -354,96 +339,11 @@ void write_address_to_fileV2(struct in_addr *address) {
                 }
                 strcat(new_line, word_list[words_per_line - 1]);
             }
-
             fprintf(new_file, "%s", new_line);
-            printf("%s", new_line);
         }
     }
     fclose(input_file);
     fclose(new_file);
-}
-
-void write_address_to_file(struct in_addr *address) {
-    char new_content[262144], line[512], *word_list[64], new_line[512], delimit[]=" ", mask_str[3], cmd[2048];
-    strcpy(cmd, "\" > /etc/wireguard/wg_dummmy.conf");
-    system(cmd);
-    char *readable_address = inet_ntoa(*address);
-    FILE *input_file, *new_file;
-    bool address_written = false;
-    int i;
-    sprintf(mask_str, "%d", NET_MASK);
-    if (NET_MASK < 10)
-        mask_str[1] = '\0';
-    else
-        mask_str[2] = '\0';
-
-    input_file = fopen(OLD_CONFIG_FILE, "r");
-    if (input_file == NULL)
-        error("fopen() - OLD_CONFIG_FILE");
-
-    system(DELETE_OLD_CONFIG_FILE_COMMAND);
-    system(CREATE_NEW_CONFIG_FILE_COMMAND);
-
-    new_file = fopen(NEW_CONFIG_FILE, "w");
-    if (new_file == NULL)
-        error("fopen() - NEW_CONFIG_FILE");
-
-
-    while (fgets(line, 512, input_file)) {
-        i = 0;
-
-        if (!address_written) {
-            word_list[i] = strtok(line, delimit);
-            while (word_list[i] != NULL) {
-                if (i == 2 && strcmp("Address", word_list[0]) == 0) {
-                    int length = strlen(new_content);
-//                    strcpy(new_content[length - 1], " = ");
-                    new_content[length - 1] = ' ';
-                    new_content[length] = '=';
-                    new_content[length + 1] = ' ';
-                    new_content[length + 2] = '\0';
-                    strcat(new_content, readable_address);
-                    strcat(new_content, "/");
-                    strcat(new_content, mask_str);
-                    strcat(new_content, "\n");
-                    address_written = true;
-                    strcpy(new_line, "");
-                    strcpy(new_line, "Address = ");
-                    strcpy(new_line, readable_address);
-                    strcpy(new_line, "/");
-                    strcpy(new_line, mask_str);
-                } else {
-                    if (strcmp("AutoConfigurable", word_list[0]) != 0) {
-                        strcat(new_content, word_list[i]);
-                    }
-                }
-                word_list[++i] = strtok(NULL, delimit);
-            }
-            if (!address_written && strcmp("AutoConfigurable", word_list[0]) != 0) {
-                strcpy(new_line, "");
-                for (int j = 0; j < i - 1; j++) {
-                    strcat(new_line, word_list[j]);
-                    strcat(new_line, " ");
-                }
-                strcat(line, word_list[i - 1]);
-            }
-//            fprintf(new_file, "%s", new_line);
-            printf("%s", new_line);
-
-        } else {
-            strcat(new_content, line);
-//            fprintf(new_file, "%s", line);
-            printf("%s", line);
-        }
-    }
-    close(input_file);
-
-    close(new_file);
-
-
-//    fprintf(new_file, "%s", new_content);
-    printf("%s", cmd);
-
 }
 
 
@@ -518,12 +418,12 @@ int run() {
     server->sin_port = htons(DHCP_PORT);
     if (inet_aton(SERVER, &server->sin_addr) == 0)
         error("inet_aton - setting server address failed");
-    send_my_address();
+    set_my_address();
     send_my_configuration(sock, server, server_length);
     struct in_addr *my_address = receive_address(sock, server, server_length);
-    write_address_to_fileV2(my_address);
+    write_address_to_file(my_address);
 //TODO: MAYBE USE THIS SHIT?
-//    send_my_address(sock, server, server_length);
+//    set_my_address(sock, server, server_length);
 //    send_configuration(sock, server, server_length);
 
     start_interface(WG_DUMMY_INTERFACE_NAME);
@@ -547,7 +447,7 @@ int main() {
 //    server->sin_addr.s_addr = INADDR_ANY;
 //    server->sin_port = htons(DHCP_PORT);
 //    server_length = sizeof (struct sockaddr_in);
-//    send_my_address(sock, server, server_length);
+//    set_my_address(sock, server, server_length);
 //    run();
     run();
 }
@@ -592,10 +492,8 @@ void mmight_be_useful() {
                             sizeof(struct sockaddr_in6),
                             host, NI_MAXHOST,
                             NULL, 0, NI_NUMERICHOST);
-            if (s != 0) {
-                printf("getnameinfo() failed: %s\n", gai_strerror(s));
-                exit(EXIT_FAILURE);
-            }
+            if (s != 0)
+                error("getnameinfo()");
 
             printf("\t\taddress: <%s>\n", host);
 
