@@ -526,7 +526,6 @@ int run() {
 //    send_my_address(sock, server, server_length);
 //    send_configuration(sock, server, server_length);
 
-    sleep(10);
     start_interface(WG_DUMMY_INTERFACE_NAME);
 
     check_for_shutdown(sock, server, server_length);
