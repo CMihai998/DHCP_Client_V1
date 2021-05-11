@@ -307,8 +307,66 @@ void get_data_from_config_file() {
  * Writes address to the config file as the address used inside the VPN
  * @param address
  */
+
+void write_address_to_fileV2(struct in_addr *address) {
+    char line[512], new_line[512], *word_list[64], delimit[] = " ", mask_str[3];
+    char *readable_address = inet_ntoa(*address);
+    FILE *input_file, *new_file;
+    int words_per_line;
+
+    sprintf(mask_str, "%d", NET_MASK);
+    if (NET_MASK < 10)
+        mask_str[1] = '\0';
+    else
+        mask_str[2] = '\0';
+
+    system(DELETE_OLD_CONFIG_FILE_COMMAND);
+    system(CREATE_NEW_CONFIG_FILE_COMMAND);
+
+    input_file = fopen(OLD_CONFIG_FILE, "r");
+    if (input_file == NULL)
+        error("fopen() - OLD_CONFIG_FILE");
+    new_file = fopen(NEW_CONFIG_FILE, "w");
+    if (new_file == NULL)
+        error("fopen() - NEW_CONFIG_FILE");
+
+    while (fgets(line, 512, input_file)) {
+        words_per_line = 0;
+
+        word_list[words_per_line] = strtok(line, delimit);
+        while (word_list[words_per_line] != NULL)
+            word_list[++words_per_line] = strtok(NULL, delimit);
+
+
+        if (strcmp(word_list[0], "AutoConfigurable") != 0) {
+            strcpy(new_line, "");
+            if (strcmp(word_list[0], "Address") == 0) {
+                strcat(new_line, "Address = ");
+                strcat(new_line, readable_address);
+                strcat(new_line, "/");
+                strcat(new_line, mask_str);
+                strcat(new_line, "\n");
+            } else {
+
+                for (int i = 0; i < words_per_line - 1; i++) {
+                    strcat(new_line, word_list[i]);
+                    strcat(new_line, " ");
+                }
+                strcat(new_line, word_list[words_per_line - 1]);
+            }
+
+            fprintf(new_file, "%s", new_line);
+            printf("%s", new_line);
+        }
+    }
+    fclose(input_file);
+    fclose(new_file);
+}
+
 void write_address_to_file(struct in_addr *address) {
-    char new_content[262144], line[512], *word_list[64], new_line[512], delimit[]=" ", mask_str[3];
+    char new_content[262144], line[512], *word_list[64], new_line[512], delimit[]=" ", mask_str[3], cmd[2048];
+    strcpy(cmd, "\" > /etc/wireguard/wg_dummmy.conf");
+    system(cmd);
     char *readable_address = inet_ntoa(*address);
     FILE *input_file, *new_file;
     bool address_written = false;
@@ -349,6 +407,7 @@ void write_address_to_file(struct in_addr *address) {
                     strcat(new_content, mask_str);
                     strcat(new_content, "\n");
                     address_written = true;
+                    strcpy(new_line, "");
                     strcpy(new_line, "Address = ");
                     strcpy(new_line, readable_address);
                     strcpy(new_line, "/");
@@ -368,12 +427,12 @@ void write_address_to_file(struct in_addr *address) {
                 }
                 strcat(line, word_list[i - 1]);
             }
-            fprintf(new_file, "%s", new_line);
+//            fprintf(new_file, "%s", new_line);
             printf("%s", new_line);
 
         } else {
             strcat(new_content, line);
-            fprintf(new_file, "%s", line);
+//            fprintf(new_file, "%s", line);
             printf("%s", line);
         }
     }
@@ -381,8 +440,9 @@ void write_address_to_file(struct in_addr *address) {
 
     close(new_file);
 
+
 //    fprintf(new_file, "%s", new_content);
-    printf("%s", new_content);
+    printf("%s", cmd);
 
 }
 
@@ -461,12 +521,12 @@ int run() {
     send_my_address();
     send_my_configuration(sock, server, server_length);
     struct in_addr *my_address = receive_address(sock, server, server_length);
-    write_address_to_file(my_address);
+    write_address_to_fileV2(my_address);
 //TODO: MAYBE USE THIS SHIT?
 //    send_my_address(sock, server, server_length);
 //    send_configuration(sock, server, server_length);
 
-
+    sleep(10);
     start_interface(WG_DUMMY_INTERFACE_NAME);
 
     check_for_shutdown(sock, server, server_length);
