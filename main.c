@@ -14,7 +14,7 @@
 #define INTERNET_INTERFACE_NAME "enp0s3"
 
 #define DHCP_PORT 8888
-#define SERVER "192.168.3.24"
+#define SERVER "192.168.0.102"
 
 #define OLD_CONFIG_FILE "/etc/wireguard/wg0.conf"
 #define NEW_CONFIG_FILE "/etc/wireguard/wg_dummmy.conf"
@@ -216,7 +216,8 @@ void check_for_shutdown(int sock, struct sockaddr_in *server, int server_length)
         freeifaddrs(ifaddr);
 
         if (found == false) {
-            return_address(sock, server, server_length, NULL);
+            MY_MESSAGE.OPTION = 1;
+            send_message(sock, server, server_length);
             stop_interface();
             exit(EXIT_SUCCESS);
         }
