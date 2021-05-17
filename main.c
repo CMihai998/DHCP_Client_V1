@@ -14,7 +14,7 @@
 #define INTERNET_INTERFACE_NAME "enp0s3"
 
 #define DHCP_PORT 8888
-#define SERVER "192.168.0.102"
+#define SERVER "192.168.0.182"
 
 #define OLD_CONFIG_FILE "/etc/wireguard/wg0.conf"
 #define NEW_CONFIG_FILE "/etc/wireguard/wg_dummmy.conf"
@@ -80,7 +80,7 @@ struct in_addr * receive_address(int sock, struct sockaddr_in *server, int serve
     struct in_addr *address = (struct in_addr*) malloc(sizeof (struct in_addr));
 
     printf("Receiving address...\n");
-    if (recvfrom(sock, &address->s_addr, sizeof (in_addr_t), 0, (struct sockaddr*) server, &server_length) < 0)
+    if (recvfrom(sock, &address->s_addr, sizeof (in_addr_t), 0, (struct sockaddr *) server, &server_length) < 0)
         error("recvfrom() - receive_address -> address was not received");
     else
         printf("\tReceived: address: %d\n-----------------\n", address->s_addr);
@@ -90,27 +90,6 @@ struct in_addr * receive_address(int sock, struct sockaddr_in *server, int serve
     else
         printf("\tReceived: mask: %d\n-----------------\n", NET_MASK);
     return address;
-}
-
-/**
- * Returns address to DHCP server
- * @param sock
- * @param server
- * @param server_length
- * @param address
- */
-void return_address(int sock, struct sockaddr_in *server, int server_length, struct in_addr *address) {
-    int request = 2;
-    printf("Initiating address return...\n");
-    if (sendto(sock, &request, sizeof (int), 0, server, server_length) < 0)
-        error("sendto() - return_address -> initiating address return\n");
-
-    if (sendto(sock, &address->s_addr, sizeof (in_addr_t), 0, server, server_length) < 0)
-        error("sendto() - return_address -> failed to return address to server");
-    else
-        printf("\tSent: returned address: %d\n-----------------\n", address->s_addr);
-
-    free(address);
 }
 
 void send_message(int sock, struct sockaddr_in *server, int server_length) {
@@ -126,31 +105,6 @@ void send_message(int sock, struct sockaddr_in *server, int server_length) {
            "\n\t\tENDPOINT (char[30]) : %s"
            "\n\t\tPORT (char[6]) : %s\n",
            MY_MESSAGE.OPTION, MY_MESSAGE.PUBLIC_KEY, MY_MESSAGE.ALLOWED_IPS, MY_MESSAGE.ADDRESS, MY_MESSAGE.ENDPOINT, MY_MESSAGE.PORT);
-}
-
-void return_address_v2(int sock, struct sockaddr_in *server, int server_length, struct in_addr *address) {
-    MY_MESSAGE.OPTION = 1;
-    MY_MESSAGE.ADDRESS = address->s_addr;
-
-    send_message(sock, server, server_length);
-
-    free(address);
-}
-
-/**
- * Signals server to shutdown
- * @param sock
- * @param server
- * @param server_length
- */
-void shutdown_server(int sock, struct sockaddr_in *server, int server_length) {
-    int request = 0;
-    printf("Requesting server to shutdown...\n");
-    if (sendto(sock, &request, sizeof (int), 0, server, server_length) < 0)
-        error("sendto() - shutdown_server\n");
-    else
-        printf("\tServer shutdown.\n-----------------\n");
-
 }
 
 void set_my_address() {
@@ -218,7 +172,6 @@ void check_for_shutdown(int sock, struct sockaddr_in *server, int server_length)
         if (found == false) {
             MY_MESSAGE.OPTION = 1;
             send_message(sock, server, server_length);
-            stop_interface();
             exit(EXIT_SUCCESS);
         }
     goto LOOP;
@@ -234,7 +187,7 @@ void generate_and_set_private_key(char *private_key) {
 
     output_file = popen(command, "r");
     if (output_file == NULL)
-        error("popen() - command not run properly");
+        error("popen() - command not usage properly");
 
     if (fgets(output, sizeof output, output_file) == NULL)
         error("fgets() - something went wrong with reading the output of the command");
@@ -293,7 +246,6 @@ void get_data_from_config_file() {
  * Writes address to the config file as the address used inside the VPN
  * @param address
  */
-
 void write_address_to_file(struct in_addr *address) {
     char line[512], new_line[512], *word_list[64], delimit[] = " ", mask_str[3];
     char *readable_address = inet_ntoa(*address);
@@ -347,7 +299,6 @@ void write_address_to_file(struct in_addr *address) {
     fclose(new_file);
 }
 
-
 void send_my_configuration(int sock, struct sockaddr_in *server, int server_length) {
     printf("Attempting to send MY_CONFIGURATION.....\n");
     MY_MESSAGE.OPTION = 0;
@@ -378,30 +329,8 @@ bool is_auto_configurable() {
     fclose(config_file);
     return false;
 }
-void might_be_useful_v2() {
-    int sock, server_length, n;
-    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
 
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)
-        error("socket()");
-
-    server->sin_family = AF_INET;
-    server->sin_addr.s_addr = INADDR_ANY;
-    server->sin_port = htons(DHCP_PORT);
-    server_length = sizeof (struct sockaddr_in);
-
-    send_configuration(sock, server, server_length);
-    struct in_addr* a1 = receive_address(sock, server, server_length);
-    struct in_addr* a2 = receive_address(sock, server, server_length);
-    struct in_addr* a3 = receive_address(sock, server, server_length);
-
-    return_address(sock, server, server_length, a2);
-
-    shutdown_server(sock, server, server_length);
-}
-
-int run() {
+int usage() {
     if (!is_auto_configurable()) {
         start_interface(WG_INTERFACE_NAME);
         goto END;
@@ -419,117 +348,20 @@ int run() {
     server->sin_port = htons(DHCP_PORT);
     if (inet_aton(SERVER, &server->sin_addr) == 0)
         error("inet_aton - setting server address failed");
+
     set_my_address();
+
     send_my_configuration(sock, server, server_length);
     struct in_addr *my_address = receive_address(sock, server, server_length);
     write_address_to_file(my_address);
-//TODO: MAYBE USE THIS SHIT?
-//    set_my_address(sock, server, server_length);
-//    send_configuration(sock, server, server_length);
 
     start_interface(WG_DUMMY_INTERFACE_NAME);
-
     check_for_shutdown(sock, server, server_length);
 
     END:
     return 0;
 }
 
-
 int main() {
-//    int sock, server_length, n;
-//    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
-//
-//    sock = socket(AF_INET, SOCK_DGRAM, 0);
-//    if (sock < 0)
-//        error("socket()");
-//
-//    server->sin_family = AF_INET;
-//    server->sin_addr.s_addr = INADDR_ANY;
-//    server->sin_port = htons(DHCP_PORT);
-//    server_length = sizeof (struct sockaddr_in);
-//    set_my_address(sock, server, server_length);
-//    run();
-    run();
-}
-
-
-
-void mmight_be_useful() {
-    struct ifaddrs *ifaddr;
-    int family, s;
-    char host[NI_MAXHOST];
-
-    if (getifaddrs(&ifaddr) == -1) {
-        perror("getifaddrs");
-        exit(EXIT_FAILURE);
-    }
-
-    /* Walk through linked list, maintaining head pointer so we
-       can free list later. */
-
-    for (struct ifaddrs *ifa = ifaddr; ifa != NULL;
-         ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr == NULL)
-            continue;
-
-        family = ifa->ifa_addr->sa_family;
-
-        /* Display interface name and family (including symbolic
-           form of the latter for the common families). */
-
-        printf("%-8s %s (%d)\n",
-               ifa->ifa_name,
-               (family == AF_PACKET) ? "AF_PACKET" :
-               (family == AF_INET) ? "AF_INET" :
-               (family == AF_INET6) ? "AF_INET6" : "???",
-               family);
-
-        /* For an AF_INET* interface address, display the address. */
-
-        if (family == AF_INET || family == AF_INET6) {
-            s = getnameinfo(ifa->ifa_addr,
-                            (family == AF_INET) ? sizeof(struct sockaddr_in) :
-                            sizeof(struct sockaddr_in6),
-                            host, NI_MAXHOST,
-                            NULL, 0, NI_NUMERICHOST);
-            if (s != 0)
-                error("getnameinfo()");
-
-            printf("\t\taddress: <%s>\n", host);
-
-        } else if (family == AF_PACKET && ifa->ifa_data != NULL) {
-            struct rtnl_link_stats *stats = ifa->ifa_data;
-
-            printf("\t\ttx_packets = %10u; rx_packets = %10u\n"
-                   "\t\ttx_bytes   = %10u; rx_bytes   = %10u\n",
-                   stats->tx_packets, stats->rx_packets,
-                   stats->tx_bytes, stats->rx_bytes);
-        }
-    }
-
-    freeifaddrs(ifaddr);
-    exit(EXIT_SUCCESS);
-}
-
-
-void usage() {
-    int sock, server_length, n;
-    struct sockaddr_in *server = (struct sockaddr_in*) malloc(sizeof (struct sockaddr_in));
-
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)
-        error("socket()");
-
-    server->sin_family = AF_INET;
-    server->sin_addr.s_addr = INADDR_ANY;
-    server->sin_port = htons(DHCP_PORT);
-    server_length = sizeof (struct sockaddr_in);
-
-    struct in_addr* address = receive_address(sock, server, server_length);
-    //setup wg0 with address
-    //send allowed ips to server
-    //send public key to server
-    //spawn_check(sock, server, server_length_address)
-    //check died, exit || return address and exit
+    usage();
 }
