@@ -1,11 +1,9 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
-#include <netdb.h>
 #include <ifaddrs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <linux/if_link.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -27,6 +25,15 @@
 
 int NET_MASK;
 
+/**
+ * Message structure:
+ *  - OPTION - int: specifies wether server should add or remove peer information specified by this message
+ *  - PUBLIC_KEY - char[256]: PUBLIC_KEY of the client, derived from PRIVATE_KEY found in the configuration file
+ *  - ALLOWED_IPS - char[256]: string that represents ips that the client wants to route through the WireGuard tunnel
+ *  - ADDRESS - in_addr_t: address that the client will receive from the server, this address is also being used when client wants to return the address
+ *  - ENDPOINT - char[30]: real endpoint of the client, where server will send the routed packets
+ *  - PORT - char[10]: port to which client WireGuard interface is listening
+ */
 struct Message {
     int OPTION;
     char PUBLIC_KEY[256];
@@ -39,34 +46,6 @@ struct Message {
 void error(char *message) {
     perror(message);
     exit(0);
-}
-
-/**
- * Sends configuration to server
- * @param sock
- * @param server
- * @param server_length
- */
-void send_configuration(int sock, struct sockaddr_in *server, int server_length) {
-    int request = -1;
-    printf("Initiating sending of configuration...\n");
-    if (sendto(sock, &request, sizeof (int), 0, server, server_length) < 0)
-        error("sendto() - send_configuration -> initialization of sending config\n");
-
-    printf("Sending configuration...\n");
-    struct in_addr *lower = (struct in_addr*) malloc(sizeof (struct in_addr));
-    struct in_addr *upper = (struct in_addr*) malloc(sizeof (struct in_addr));
-    lower->s_addr = 20;
-    upper->s_addr = 1000;
-    if (sendto(sock, &lower->s_addr, sizeof (in_addr_t), 0, server, server_length) < 0)
-        error("sendto() - send_configuration -> send of lower bound address");
-    else
-        printf("\tSent: lower bound: %d\n", lower->s_addr);
-
-    if (sendto(sock, &upper->s_addr, sizeof (in_addr_t), 0, server, server_length) < 0)
-        error("sendto() - send_configuration -> send of upper bound address");
-    else
-        printf("\tSent: upper bound: %d\n-----------------\n", upper->s_addr);
 }
 
 /**
@@ -92,6 +71,13 @@ struct in_addr * receive_address(int sock, struct sockaddr_in *server, int serve
     return address;
 }
 
+/**
+ * Function used in order to send message to server.
+ * @param sock
+ * @param from
+ * @param from_length
+ * @return
+ */
 void send_message(int sock, struct sockaddr_in *server, int server_length) {
     if (sendto(sock, (struct Message*)&MY_MESSAGE, (1024 + (sizeof MY_MESSAGE)), 0, server, server_length) < 0) {
         error("sendto() - send_my_configuration - sending of configuration failed");
@@ -107,6 +93,9 @@ void send_message(int sock, struct sockaddr_in *server, int server_length) {
            MY_MESSAGE.OPTION, MY_MESSAGE.PUBLIC_KEY, MY_MESSAGE.ALLOWED_IPS, MY_MESSAGE.ADDRESS, MY_MESSAGE.ENDPOINT, MY_MESSAGE.PORT);
 }
 
+/**
+ * Sets real endpoint which needs to be sent to the server.
+ */
 void set_my_address() {
     struct ifaddrs *ifaddr;
 
@@ -127,7 +116,10 @@ void set_my_address() {
     freeifaddrs(ifaddr);
 }
 
-
+/**
+ * Starts specified interface.
+ * @param interface_name
+ */
 void start_interface(char *interface_name) {
     if (strcmp(interface_name, WG_INTERFACE_NAME) == 0) {
         system(START_INTERFACE_COMMAND);
@@ -139,7 +131,6 @@ void start_interface(char *interface_name) {
 void stop_interface() {
     system(STOP_INTERFACE_COMMAND);
 }
-
 
 /**
  * Checks if wireguard interface is down and if so, stops the application
@@ -177,7 +168,11 @@ void check_for_shutdown(int sock, struct sockaddr_in *server, int server_length)
     goto LOOP;
 }
 
-void generate_and_set_private_key(char *private_key) {
+/**
+ * Generates PUBLIC_KEY and sets it inside the Message used in the communication with the server.
+ * @param private_key
+ */
+void generate_and_set_public_key(char *private_key) {
     char output[256], command[128] = "echo ";
     FILE *output_file;
 
@@ -218,7 +213,7 @@ void get_data_from_config_file() {
             word_list[++i] = strtok(NULL, delimit);
 
         if (strcmp(word_list[0], "PrivateKey") == 0) {
-            generate_and_set_private_key(word_list[2]);
+            generate_and_set_public_key(word_list[2]);
             private_key_found = true;
         }
         if (strcmp(word_list[0], "AllowedIPs") == 0) {
@@ -299,6 +294,12 @@ void write_address_to_file(struct in_addr *address) {
     fclose(new_file);
 }
 
+/**
+ * Sends configuration to the server.
+ * @param sock
+ * @param server
+ * @param server_length
+ */
 void send_my_configuration(int sock, struct sockaddr_in *server, int server_length) {
     printf("Attempting to send MY_CONFIGURATION.....\n");
     MY_MESSAGE.OPTION = 0;
@@ -306,6 +307,11 @@ void send_my_configuration(int sock, struct sockaddr_in *server, int server_leng
     send_message(sock, server, server_length);
 }
 
+/**
+ * Checks if WireGuard will use or not the DHCP server
+ * @return True, if autoconfigurable option is true
+ *         False, otherwise
+ */
 bool is_auto_configurable() {
     char line[512], *word_list[64], delimit[] = " ";
     FILE *config_file;
